@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Todo App</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+        .todo { padding: 10px; border: 1px solid #ddd; margin: 5px 0; border-radius: 5px; }
+        .completed { text-decoration: line-through; opacity: 0.6; }
+        input, button { padding: 10px; margin: 5px; }
+        button { background: #007cba; color: white; border: none; border-radius: 3px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>Todo App on EKS</h1>
+    <div>
+        <input type="text" id="taskInput" placeholder="Enter new task">
+        <button onclick="addTodo()">Add Task</button>
+    </div>
+    <div id="todoList"></div>
+
+    <script>
+        async function loadTodos() {
+            const response = await fetch('/api/todos');
+            const todos = await response.json();
+            const todoList = document.getElementById('todoList');
+            todoList.innerHTML = todos.map(todo => `
+                <div class="todo ${todo.completed ? 'completed' : ''}">
+                    <input type="checkbox" ${todo.completed ? 'checked' : ''} 
+                           onchange="toggleTodo(${todo.id}, this.checked)">
+                    ${todo.task}
+                    <button onclick="deleteTodo(${todo.id})" style="float: right; background: #dc3545;">Delete</button>
+                </div>
+            `).join('');
+        }
+
+        async function addTodo() {
+            const taskInput = document.getElementById('taskInput');
+            const task = taskInput.value.trim();
+            if (!task) return;
+
+            await fetch('/api/todos', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task })
+            });
+            
+            taskInput.value = '';
+            loadTodos();
+        }
+
+        async function toggleTodo(id, completed) {
+            await fetch(`/api/todos/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ completed })
+            });
+            loadTodos();
+        }
+
+        async function deleteTodo(id) {
+            await fetch(`/api/todos/${id}`, { method: 'DELETE' });
+            loadTodos();
+        }
+
+        loadTodos();
+    </script>
+</body>
+</html>

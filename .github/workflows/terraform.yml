@@ -1,0 +1,70 @@
+name: Terraform Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.13.3
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+    
+    - name: Terraform Init
+      run: terraform init
+    
+    - name: Terraform Plan
+      run: terraform plan
+    
+    - name: Terraform Apply
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: terraform apply -auto-approve
+    
+    - name: Update kubeconfig
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        aws eks update-kubeconfig --region us-east-1 --name $(terraform output -raw cluster_name)
+    
+    - name: Wait for ALB Controller
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=aws-load-balancer-controller -n kube-system --timeout=300s
+    
+    - name: Deploy Application
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        kubectl apply -f todo-app/k8s/
+    
+    - name: Wait for Ingress
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        echo "Waiting for ALB to be provisioned..."
+        kubectl wait --for=condition=ready ingress/todo-app-ingress --timeout=600s || true
+        kubectl get ingress todo-app-ingress
+    
+    - name: Clean up orphaned resources
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        # Remove any orphaned NLBs if they exist
+        aws elbv2 describe-load-balancers --query 'LoadBalancers[?Type==`network`].LoadBalancerArn' --output text | \
+        xargs -r -I {} aws elbv2 delete-load-balancer --load-balancer-arn {} || true
+    
+    - name: Display Application URL
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        echo "Application URL: $(terraform output -raw todo_app_url)"

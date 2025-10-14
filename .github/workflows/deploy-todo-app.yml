@@ -1,0 +1,83 @@
+name: Deploy Todo App to EKS
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'todo-app/**' ]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: ot-eks-cluster
+  ECR_REPOSITORY: todo-app
+
+jobs:
+  deploy:
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Create ECR repository if not exists
+      run: |
+        aws ecr describe-repositories --repository-names $ECR_REPOSITORY || \
+        aws ecr create-repository --repository-name $ECR_REPOSITORY
+
+    - name: Build and push Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        cd todo-app
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER_NAME
+
+    - name: Deploy to EKS
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        cd todo-app
+        # Update image in deployment
+        sed -i "s|todo-app:latest|$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG|g" k8s/deployment.yaml
+        
+        # Apply Kubernetes manifests
+        kubectl apply -f k8s/deployment.yaml
+        kubectl apply -f k8s/service.yaml
+        kubectl apply -f k8s/ingress.yaml
+        
+        # Wait for deployment to be ready
+        kubectl rollout status deployment/todo-app --timeout=300s
+        
+        # Get ingress information
+        echo "Deployment completed!"
+        echo "Waiting for ALB to be provisioned..."
+        sleep 60
+        kubectl get ingress todo-app-ingress
+        
+        # Get ALB URL
+        ALB_URL=$(kubectl get ingress todo-app-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+        if [ ! -z "$ALB_URL" ]; then
+          echo "🌐 Todo App URL: http://$ALB_URL"
+        else
+          echo "⏳ ALB still provisioning. Check ingress status: kubectl get ingress"
+        fi
