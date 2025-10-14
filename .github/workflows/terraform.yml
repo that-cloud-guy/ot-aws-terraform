@@ -40,29 +40,17 @@ jobs:
       run: |
         aws eks update-kubeconfig --region us-east-1 --name $(terraform output -raw cluster_name)
     
-    - name: Wait for ALB Controller
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      run: |
-        kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=aws-load-balancer-controller -n kube-system --timeout=300s
-    
     - name: Deploy Application
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: |
         kubectl apply -f todo-app/k8s/
     
-    - name: Wait for Ingress
+    - name: Wait for LoadBalancer Service
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: |
-        echo "Waiting for ALB to be provisioned..."
-        kubectl wait --for=condition=ready ingress/todo-app-ingress --timeout=600s || true
-        kubectl get ingress todo-app-ingress
-    
-    - name: Clean up orphaned resources
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      run: |
-        # Remove any orphaned NLBs if they exist
-        aws elbv2 describe-load-balancers --query 'LoadBalancers[?Type==`network`].LoadBalancerArn' --output text | \
-        xargs -r -I {} aws elbv2 delete-load-balancer --load-balancer-arn {} || true
+        echo "Waiting for LoadBalancer service to be ready..."
+        kubectl wait --for=jsonpath='{.status.loadBalancer.ingress}' service/todo-app-service --timeout=600s || true
+        kubectl get service todo-app-service
     
     - name: Display Application URL
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
