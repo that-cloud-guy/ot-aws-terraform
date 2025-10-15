@@ -35,24 +35,3 @@ jobs:
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: terraform apply -auto-approve
     
-    - name: Update kubeconfig
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      run: |
-        aws eks update-kubeconfig --region us-east-1 --name $(terraform output -raw cluster_name)
-    
-    - name: Deploy Application
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      run: |
-        kubectl apply -f todo-app/k8s/
-    
-    - name: Wait for LoadBalancer Service
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      run: |
-        echo "Waiting for LoadBalancer service to be ready..."
-        kubectl wait --for=jsonpath='{.status.loadBalancer.ingress}' service/todo-app-service --timeout=600s || true
-        kubectl get service todo-app-service
-    
-    - name: Display Application URL
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      run: |
-        echo "Application URL: $(terraform output -raw todo_app_url)"
