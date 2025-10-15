@@ -66,12 +66,12 @@ jobs:
         # Wait for deployment to be ready
         kubectl rollout status deployment/todo-app --timeout=300s
         
-        echo "🚀 Deployment completed!"
+        echo "Deployment completed!"
         
         # Get LoadBalancer URL
         LB_URL=$(kubectl get service todo-app-service -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
         if [ ! -z "$LB_URL" ]; then
-          echo "🌐 Todo App URL: http://$LB_URL"
+          echo "Todo App URL: http://$LB_URL"
         else
-          echo "⏳ LoadBalancer still provisioning. Check service: kubectl get svc todo-app-service"
+          echo " LoadBalancer still provisioning. Check service: kubectl get svc todo-app-service"
         fi
